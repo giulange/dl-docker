@@ -1,14 +1,24 @@
-FROM nvidia/cuda:8.0-cudnn6-devel-ubuntu16.04
+#FROM nvidia/cuda:8.0-cudnn5-devel-ubuntu14.04 # (del by Francesco)
+FROM nvidia/cuda:8.0-cudnn5-devel-ubuntu16.04
+#FROM nvidia/cuda:11.5.1-cudnn8-runtime-ubuntu20.04
 
-MAINTAINER Sai Soundararaj <saip@outlook.com>
+ENV TZ=Europe/Rome
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
+MAINTAINER Giuliano Langella <glangella@unina.it>
 
 ARG THEANO_VERSION=rel-0.8.2
-ARG TENSORFLOW_VERSION=0.12.1
+#ARG THEANO_VERSION=latest
+##ARG TENSORFLOW_VERSION=0.12.1
+#ARG TENSORFLOW_VERSION=latest
 ARG TENSORFLOW_ARCH=gpu
 ARG KERAS_VERSION=1.2.0
+#ARG KERAS_VERSION=latest
 ARG LASAGNE_VERSION=v0.1
+#ARG LASAGNE_VERSION=latest
 ARG TORCH_VERSION=latest
 ARG CAFFE_VERSION=master
+
 
 #RUN echo -e "\n**********************\nNVIDIA Driver Version\n**********************\n" && \
 #	cat /proc/driver/nvidia/version && \
@@ -33,7 +43,9 @@ RUN apt-get update && apt-get install -y \
 		libopenblas-dev \
 		liblapack-dev \
 		libopenjpeg5 \
+		#libopenjp2-7 \
 		libpng12-dev \
+		#libpng-dev \
 		libssl-dev \
 		libtiff5-dev \
 		libwebp-dev \
@@ -88,13 +100,17 @@ RUN apt-get update && apt-get install -y \
 	update-alternatives --set libblas.so.3 /usr/lib/openblas-base/libblas.so.3
 
 # Install pip
-#RUN curl -O https://bootstrap.pypa.io/get-pip.py && \
 RUN curl -O https://bootstrap.pypa.io/pip/2.7/get-pip.py && \
+RUN curl -O https://bootstrap.pypa.io/get-pip.py && \
 	python get-pip.py && \
 	rm get-pip.py
 
+#RUN add-apt-repository universe
+RUN apt-get update
+RUN apt-get install -y python3-pip
+
 # Add SNI support to Python
-RUN pip --no-cache-dir install \
+RUN pip3 --no-cache-dir install \
 		pyopenssl \
 		ndg-httpsclient \
 		pyasn1
@@ -102,15 +118,15 @@ RUN pip --no-cache-dir install \
 # Install useful Python packages using apt-get to avoid version incompatibilities with Tensorflow binary
 # especially numpy, scipy, skimage and sklearn (see https://github.com/tensorflow/tensorflow/issues/2034)
 RUN apt-get update && apt-get install -y \
-		python-numpy \
-		python-scipy \
-		python-nose \
-		python-h5py \
-		python-skimage \
-		python-matplotlib \
-		python-pandas \
-		python-sklearn \
-		python-sympy \
+		python3-numpy \
+		python3-scipy \
+		python3-nose \
+		python3-h5py \
+		python3-skimage \
+		python3-matplotlib \
+		python3-pandas \
+		python3-sklearn \
+		python3-sympy \
 		&& \
 	apt-get clean && \
 	apt-get autoremove && \
@@ -118,25 +134,28 @@ RUN apt-get update && apt-get install -y \
 
 # Install other useful Python packages using pip
 RUN apt-get remove -y ipython
-RUN pip --no-cache-dir install --upgrade ipython && \
-	pip --no-cache-dir install \
+RUN pip3 --no-cache-dir install --upgrade ipython && \
+	pip3 --no-cache-dir install \
 		Cython \
 		ipykernel \
 		jupyter \
 		path.py \
 		Pillow \
 		pygments \
-		six \
+		six==1.11.0 \
 		sphinx \
 		wheel \
 		zmq \
 		&& \
-	python -m ipykernel.kernelspec
+	python3 -m ipykernel.kernelspec
 
 
 # Install TensorFlow
-RUN pip --no-cache-dir install \
+RUN pip3 --no-cache-dir install \
 	https://storage.googleapis.com/tensorflow/linux/${TENSORFLOW_ARCH}/tensorflow_${TENSORFLOW_ARCH}-${TENSORFLOW_VERSION}-cp27-none-linux_x86_64.whl
+#   see here: https://www.tensorflow.org/install/pip#system-install
+#RUN pip3 --no-cache-dir install --upgrade tensorflow
+#RUN python3 -c "import tensorflow as tf;print(tf.reduce_sum(tf.random.normal([1000, 1000])))"
 
 
 # Install dependencies for Caffe
@@ -153,13 +172,16 @@ RUN apt-get update && apt-get install -y \
 		protobuf-compiler \
 		&& \
 	apt-get clean && \
-	apt-get autoremove && \
+	apt-get autoremove -y && \
 	rm -rf /var/lib/apt/lists/*
+
+# pre-requisites for caffe, as retrieved from previous build attempts:
+RUN pip3 install python-dateutil
 
 # Install Caffe
 RUN git clone -b ${CAFFE_VERSION} --depth 1 https://github.com/BVLC/caffe.git /root/caffe && \
 	cd /root/caffe && \
-	cat python/requirements.txt | xargs -n1 pip install && \
+	cat python/requirements.txt | xargs -n1 pip3 install && \
 	mkdir build && cd build && \
 	cmake -DUSE_CUDNN=1 -DBLAS=Open .. && \
 	make -j"$(nproc)" all && \
@@ -175,7 +197,7 @@ RUN echo "$CAFFE_ROOT/build/lib" >> /etc/ld.so.conf.d/caffe.conf && ldconfig
 
 
 # Install Theano and set up Theano config (.theanorc) for CUDA and OpenBLAS
-RUN pip --no-cache-dir install git+git://github.com/Theano/Theano.git@${THEANO_VERSION} && \
+RUN pip3 --no-cache-dir install git+git://github.com/Theano/Theano.git@${THEANO_VERSION} && \
 	\
 	echo "[global]\ndevice=gpu\nfloatX=float32\noptimizer_including=cudnn\nmode=FAST_RUN \
 		\n[lib]\ncnmem=0.95 \
@@ -186,12 +208,14 @@ RUN pip --no-cache-dir install git+git://github.com/Theano/Theano.git@${THEANO_V
 
 
 # Install Keras
-RUN pip --no-cache-dir install git+git://github.com/fchollet/keras.git@${KERAS_VERSION}
+RUN pip3 --no-cache-dir install git+git://github.com/fchollet/keras.git@${KERAS_VERSION}
 
 
 # Install Lasagne
-RUN pip --no-cache-dir install git+git://github.com/Lasagne/Lasagne.git@${LASAGNE_VERSION}
+RUN pip3 --no-cache-dir install git+git://github.com/Lasagne/Lasagne.git@${LASAGNE_VERSION}
 
+
+RUN apt-get update && apt-get -y install sudo
 
 # Install Torch
 RUN git clone https://github.com/torch/distro.git /root/torch --recursive && \
